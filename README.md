@@ -1,16 +1,14 @@
 ### Hi there 👋
+<p>
+  I'm Anthony Gannuscio! I am an aspiring Full Stack Developer. Born in Phoenix AZ. Moved to Seattle WA in 2013. I enjoy Spending time with my family, playing music, Video Games, and studying programming-coding languages. My dream job is to be a software developer for a gaming company. I live in Lake Stevens, WA. I want to be a web developer so I can expand my career opportunities and work for awesome gaming companies.
+</p>
 
-<!--
-**m3t4ldood/m3t4ldood** is a ✨ _special_ ✨ repository because its `README.md` (this file) appears on your GitHub profile.
-
-Here are some ideas to get you started:
-
-- 🔭 I’m currently working on ...
-- 🌱 I’m currently learning ...
-- 👯 I’m looking to collaborate on ...
-- 🤔 I’m looking for help with ...
-- 💬 Ask me about ...
-- 📫 How to reach me: ...
-- 😄 Pronouns: ...
-- ⚡ Fun fact: ...
+- 🔭 I’m currently working on Coding Bootcamp Homework
+- 🌱 I’m currently learning CSS and Web Development
+- 👯 I’m looking to collaborate on anything
+- 🤔 I’m looking for help with homework
+- 💬 Ask me about action figues
+- 📫 How to reach me: DMs
+- 😄 Pronouns: Shlim and Shler
+- ⚡ Fun fact: cows cant go down stairs
 -->
