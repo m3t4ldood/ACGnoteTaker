@@ -1,6 +1,6 @@
 // dependencies
 const express = require("express");
-const apiroutes = require("./routes/apiRoutes.js");
+const apiRoutes = require("./routes/apiRoutes.js");
 const htmlRoutes = require("./routes/htmlRoutes.js");
 
 // Make an express server

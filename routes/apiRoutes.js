@@ -1,9 +1,14 @@
 // dependencies
 const router = require("express").Router();
-const store = require("./../db/store");
+// const store = require("./../db/store");
+const fs = require("fs")
 
 // routes
 router.get("notes", function (req, res) {
+    fs.readFile("../db/db.json", "utf8", function(err, data){
+        const notes = JSON.parse(data)
+        res.json(notes)
+    })
     store
         .getNotes()
         .then(notes => res.json(notes))
