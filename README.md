@@ -4,7 +4,7 @@
 </p>
 
 - 🔭 I’m currently working on Coding Bootcamp Homework
-- 🌱 I’m currently learning CSS and Web Development
+- 🌱 I’m currently learning Full Stack Web Development
 - 👯 I’m looking to collaborate on anything
 - 🤔 I’m looking for help with homework
 - 💬 Ask me about action figues
