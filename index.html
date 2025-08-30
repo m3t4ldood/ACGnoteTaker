@@ -1,0 +1,650 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Voice Whiteboard — Draw, Type, Speak</title>
+<style>
+  :root{
+    --bg:#0e0f12; --panel:#171920; --ink:#e8e8ea; --muted:#9aa0a6;
+    --accent:#4f46e5; --ok:#16a34a; --warn:#f59e0b; --danger:#ef4444;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0;background:var(--bg);color:var(--ink);font:14px/1.4 system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
+  .app{display:grid;grid-template-rows:auto 1fr; height:100%;}
+  header{
+    display:flex; gap:.5rem; align-items:center; padding:.6rem .8rem;
+    background:linear-gradient(180deg,var(--panel),#12141a); border-bottom:1px solid #232632;
+    position:sticky; top:0; z-index:5;
+  }
+  header h1{font-size:16px;margin:0;font-weight:700;letter-spacing:.2px}
+  .spacer{flex:1}
+  button, .chip{
+    background:#222534; color:var(--ink); border:1px solid #2c3042; border-radius:12px;
+    padding:.45rem .65rem; cursor:pointer; display:inline-flex; align-items:center; gap:.5rem;
+    transition:transform .05s ease, background .2s ease, border-color .2s ease;
+  }
+  button:hover{background:#262a3c}
+  button:active{transform:translateY(1px)}
+  button[disabled]{opacity:.6; cursor:not-allowed}
+  .mic.on{background:#262a3c; border-color:#3d425b; box-shadow:0 0 0 2px rgba(79,70,229,.25) inset}
+  .toolbar{display:flex; gap:.4rem; align-items:center; flex-wrap:wrap}
+  .label{color:var(--muted); font-size:12px}
+  input[type="range"]{accent-color:var(--accent)}
+  .board-wrap{
+    position:relative; height:100%; overflow:hidden; background:
+      radial-gradient(1200px 800px at 30% -20%, #1a1d28 0%, transparent 60%) ,
+      #0d0f14;
+  }
+  canvas#board{position:absolute; inset:0; width:100%; height:100%; cursor:crosshair}
+  /* Notes layer */
+  .notes-layer{position:absolute; inset:0; pointer-events:none}
+  .note{
+    position:absolute; min-width:120px; max-width:280px; padding:.5rem .6rem .6rem .6rem;
+    background:#202432; color:#e9eaf0; border:1px solid #30364a; border-radius:10px;
+    box-shadow:0 6px 20px rgba(0,0,0,.35);
+    pointer-events:auto; user-select:none;
+  }
+  .note textarea{
+    width:100%; height:100%; border:0; outline:0; background:transparent; color:inherit; resize:none;
+    font:14px/1.35 ui-sans-serif,system-ui; caret-color:#fff;
+  }
+  .note .handle{position:absolute; top:6px; right:8px; font-size:12px; color:var(--muted); cursor:grab}
+  .note .meta{position:absolute; bottom:6px; left:10px; font-size:11px; color:#9aa0a6}
+  .note.selected{outline:2px solid #7c83ff}
+  /* Color dots */
+  .color-dots{position:absolute; right:12px; bottom:12px; display:flex; gap:.5rem; z-index:4}
+  .dot{
+    width:30px; height:30px; border-radius:50%; border:2px solid #2f3347; cursor:pointer;
+    box-shadow:0 6px 18px rgba(0,0,0,.35);
+  }
+  .dot[data-color="black"]{background:#101216}
+  .dot[data-color="red"]{background:#ef4444}
+  .dot[data-color="green"]{background:#22c55e}
+  .dot[data-color="blue"]{background:#3b82f6}
+  .dot.active{outline:3px solid rgba(255,255,255,.25)}
+  /* Custom context menu */
+  .ctx{
+    position:absolute; background:#1b1f2d; border:1px solid #2b3150; border-radius:12px; padding:.35rem;
+    min-width:220px; box-shadow:0 12px 26px rgba(0,0,0,.45); z-index:10; display:none;
+  }
+  .ctx button{
+    width:100%; justify-content:flex-start; border-radius:10px; padding:.55rem .65rem; background:transparent;
+  }
+  .ctx button:hover{background:#232943}
+  .status{color:var(--muted); font-size:12px}
+  /* Notes list drawer */
+  .drawer{
+    position:absolute; top:12px; right:12px; background:#141826; border:1px solid #242a44; border-radius:14px;
+    max-height:60%; width:260px; overflow:auto; z-index:6; box-shadow:0 10px 30px rgba(0,0,0,.45)
+  }
+  .drawer header{position:sticky; top:0; background:#141826; padding:.5rem .7rem; border-bottom:1px solid #242a44}
+  .drawer .items{padding:.3rem .3rem .6rem}
+  .drawer .item{
+    display:flex; gap:.5rem; align-items:flex-start; padding:.45rem .5rem; border-radius:10px; border:1px solid transparent;
+  }
+  .drawer .item:hover{background:#171c2e; border-color:#232a4a}
+  .drawer .item .ts{color:var(--muted); font-size:11px}
+  .drawer .item .txt{white-space:pre-wrap}
+  .hidden{display:none}
+  /* Small screens */
+  @media (max-width:800px){
+    .drawer{width:72vw}
+    header{flex-wrap:wrap}
+  }
+  /* Hide system menu on canvas right-click */
+  #board { -webkit-touch-callout:none; -webkit-user-select:none; -webkit-tap-highlight-color: transparent; }
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <h1>🎤 Voice Whiteboard</h1>
+    <div class="spacer"></div>
+    <div class="toolbar">
+      <span class="label">Brush</span>
+      <input id="size" type="range" min="1" max="40" value="5" />
+      <button id="undo" title="Undo (Ctrl+Z)">↶ Undo</button>
+      <button id="redo" title="Redo (Ctrl+Y)">↷ Redo</button>
+      <button id="eraser" title="Eraser (E)">🩹 Eraser</button>
+      <button id="save" title="Export PNG">💾 PNG</button>
+      <button id="clear" class="danger" title="Clear Board">🧹 Clear</button>
+      <button id="toggleDrawer" title="Show Notes">🗒️ Notes</button>
+      <button id="mic" class="mic" title="Start/Stop Voice Notes">🎙 Start</button>
+      <span id="micState" class="status">Mic: idle</span>
+    </div>
+  </header>
+
+  <div class="board-wrap" id="wrap">
+    <canvas id="board"></canvas>
+    <div class="notes-layer" id="notesLayer"></div>
+
+    <!-- Color dots -->
+    <div class="color-dots" id="dots">
+      <div class="dot" data-color="black" title="Black"></div>
+      <div class="dot" data-color="red"   title="Red"></div>
+      <div class="dot" data-color="green" title="Green"></div>
+      <div class="dot" data-color="blue"  title="Blue"></div>
+    </div>
+
+    <!-- Custom context menu -->
+    <div class="ctx" id="ctx">
+      <button data-act="addNote">➕ Add Text Note</button>
+      <button data-act="toggleEraser">🩹 Toggle Eraser</button>
+      <button data-act="undo">↶ Undo</button>
+      <button data-act="redo">↷ Redo</button>
+      <button data-act="save">💾 Export PNG</button>
+      <button data-act="clear" style="color:#ef4444">🧹 Clear Board</button>
+    </div>
+
+    <!-- Notes drawer -->
+    <aside class="drawer hidden" id="drawer">
+      <header class="drawer-head">
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+          <strong>Notes</strong>
+          <button id="closeDrawer">✕</button>
+        </div>
+      </header>
+      <div class="items" id="notesList"></div>
+    </aside>
+  </div>
+</div>
+
+<script>
+(function(){
+  // ---------- Canvas setup ----------
+  const wrap = document.getElementById('wrap');
+  const canvas = document.getElementById('board');
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  const dots = document.getElementById('dots');
+  const size = document.getElementById('size');
+  const undoBtn = document.getElementById('undo');
+  const redoBtn = document.getElementById('redo');
+  const eraserBtn = document.getElementById('eraser');
+  const saveBtn = document.getElementById('save');
+  const clearBtn = document.getElementById('clear');
+  const ctxMenu = document.getElementById('ctx');
+
+  const notesLayer = document.getElementById('notesLayer');
+  const drawer = document.getElementById('drawer');
+  const notesList = document.getElementById('notesList');
+  const toggleDrawer = document.getElementById('toggleDrawer');
+  const closeDrawer = document.getElementById('closeDrawer');
+
+  const micBtn = document.getElementById('mic');
+  const micState = document.getElementById('micState');
+
+  let color = 'black';
+  let erasing = false;
+  let drawing = false;
+  let last = null;
+  const history = []; // undo stack
+  const future = [];  // redo stack
+  const MAX_HISTORY = 25;
+  const notes = [];   // {id, x,y, text, ts}
+
+  function resizeCanvas(){
+    const dpr = Math.max(1, window.devicePixelRatio || 1);
+    const rect = wrap.getBoundingClientRect();
+    const w = Math.floor(rect.width);
+    const h = Math.floor(rect.height);
+    // Save current drawing
+    const img = ctx.getImageData(0,0,canvas.width||1,canvas.height||1);
+    canvas.width = Math.floor(w * dpr);
+    canvas.height = Math.floor(h * dpr);
+    canvas.style.width = w + 'px';
+    canvas.style.height = h + 'px';
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+    // Restore
+    ctx.fillStyle = '#0d0f14';
+    ctx.fillRect(0,0,w,h);
+    if(img.width && img.height){
+      // Draw previous content scaled to new size
+      const tmp = document.createElement('canvas');
+      tmp.width = img.width; tmp.height = img.height;
+      tmp.getContext('2d').putImageData(img,0,0);
+      ctx.drawImage(tmp,0,0,w,h);
+    }
+  }
+  window.addEventListener('resize', () => { resizeCanvas(); saveStateDebounced(); });
+
+  function pushHistory(){
+    try{
+      if(history.length >= MAX_HISTORY) history.shift();
+      history.push(canvas.toDataURL());
+      future.length = 0;
+      updateUndoRedo();
+    }catch(e){ /* ignore */ }
+  }
+  function restoreFrom(dataURL){
+    const img = new Image();
+    img.onload = ()=>{
+      ctx.clearRect(0,0,canvas.width,canvas.height);
+      ctx.drawImage(img,0,0,canvas.width/ (window.devicePixelRatio||1), canvas.height/ (window.devicePixelRatio||1));
+      saveStateDebounced();
+    };
+    img.src = dataURL;
+  }
+  function updateUndoRedo(){
+    undoBtn.disabled = history.length < 1;
+    redoBtn.disabled = future.length < 1;
+  }
+
+  function startDraw(x,y){
+    drawing = true;
+    last = {x,y};
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.lineWidth = +size.value;
+    ctx.strokeStyle = erasing ? '#0d0f14' : color;
+    ctx.beginPath();
+    ctx.moveTo(x,y);
+  }
+  function moveDraw(x,y){
+    if(!drawing) return;
+    ctx.lineTo(x,y);
+    ctx.stroke();
+    last = {x,y};
+  }
+  function endDraw(){
+    if(!drawing) return;
+    drawing = false;
+    ctx.closePath();
+    pushHistory();
+    saveStateDebounced();
+  }
+
+  function getRelPos(ev){
+    const rect = canvas.getBoundingClientRect();
+    const x = (ev.clientX - rect.left);
+    const y = (ev.clientY - rect.top);
+    return {x,y};
+  }
+
+  // Pointer events
+  canvas.addEventListener('pointerdown', (e) => {
+  if (e.button === 2) return; // right click handled separately
+  ctxMenu.style.display = 'none';
+  canvas.setPointerCapture(e.pointerId);
+
+  const { x, y } = getRelPos(e);
+  startDraw(x, y);
+});
+
+canvas.addEventListener('pointermove', (e) => {
+  if (!drawing) return;
+  const { x, y } = getRelPos(e);
+  moveDraw(x, y);
+});
+
+// remove pointerup on canvas and do this instead:
+window.addEventListener('pointerup', (e) => {
+  if (drawing) {
+    endDraw();
+    try { canvas.releasePointerCapture(e.pointerId); } catch {}
+  }
+});
+  canvas.addEventListener('pointerdown', (e)=>{
+    if(e.button === 2){ // right click handled separately
+      return;
+    }
+    ctxMenu.style.display = 'none';
+    canvas.setPointerCapture(e.pointerId);
+    const {x,y} = getRelPos(e);
+    startDraw(x,y);
+  });
+  canvas.addEventListener('pointermove', (e)=>{
+    if(!drawing) return;
+    const {x,y} = getRelPos(e);
+    moveDraw(x,y);
+  });
+  canvas.addEventListener('pointerup', (e)=>{
+    if(!drawing) return endDraw();
+  });
+  canvas.addEventListener('pointercancel', ()=> endDraw());
+
+  // Prevent system menu; show custom
+  canvas.addEventListener('contextmenu', (e)=>{
+    e.preventDefault();
+    showCtx(e.clientX, e.clientY);
+  });
+  function showCtx(x,y){
+    ctxMenu.style.display = 'block';
+    const r = wrap.getBoundingClientRect();
+    const right = r.right - 10, bottom = r.bottom - 10;
+    ctxMenu.style.left = Math.min(x, right - ctxMenu.offsetWidth) + 'px';
+    ctxMenu.style.top  = Math.min(y, bottom - ctxMenu.offsetHeight) + 'px';
+  }
+  window.addEventListener('click', ()=> ctxMenu.style.display = 'none');
+
+  // Context menu actions
+  ctxMenu.addEventListener('click', (e)=>{
+    const act = e.target?.dataset?.act;
+    if(!act) return;
+    ctxMenu.style.display='none';
+    if(act==='addNote') createNoteAtCenter();
+    if(act==='toggleEraser') toggleEraser();
+    if(act==='undo') doUndo();
+    if(act==='redo') doRedo();
+    if(act==='save') exportPNG();
+    if(act==='clear') clearBoard();
+  });
+
+  // Toolbar
+  undoBtn.addEventListener('click', doUndo);
+  redoBtn.addEventListener('click', doRedo);
+  eraserBtn.addEventListener('click', toggleEraser);
+  saveBtn.addEventListener('click', exportPNG);
+  clearBtn.addEventListener('click', clearBoard);
+
+  function doUndo(){
+    if(history.length < 1) return;
+    const cur = canvas.toDataURL();
+    future.push(cur);
+    const prev = history.pop();
+    restoreFrom(prev);
+    updateUndoRedo();
+  }
+  function doRedo(){
+    if(future.length < 1) return;
+    const cur = canvas.toDataURL();
+    history.push(cur);
+    const next = future.pop();
+    restoreFrom(next);
+    updateUndoRedo();
+  }
+  function toggleEraser(){
+    erasing = !erasing;
+    eraserBtn.classList.toggle('on', erasing);
+    eraserBtn.textContent = erasing ? '🩹 Eraser (ON)' : '🩹 Eraser';
+  }
+  function exportPNG(){
+    // Compose canvas + notes into one image
+    const out = document.createElement('canvas');
+    const rect = canvas.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    out.width = Math.floor(rect.width * dpr);
+    out.height = Math.floor(rect.height * dpr);
+    const octx = out.getContext('2d');
+    octx.scale(dpr,dpr);
+    // bg
+    octx.fillStyle = '#0d0f14';
+    octx.fillRect(0,0,rect.width,rect.height);
+    // board
+    octx.drawImage(canvas,0,0,rect.width,rect.height);
+    // notes
+    document.querySelectorAll('.note').forEach(el=>{
+      const r = el.getBoundingClientRect();
+      const wr = wrap.getBoundingClientRect();
+      octx.fillStyle = getComputedStyle(el).backgroundColor;
+      octx.strokeStyle = '#30364a';
+      octx.lineWidth = 1;
+      const x = r.left - wr.left, y = r.top - wr.top, w=r.width, h=r.height;
+      roundRect(octx, x, y, w, h, 10); octx.fill(); octx.stroke();
+      // text
+      const ta = el.querySelector('textarea');
+      octx.fillStyle = '#e9eaf0';
+      octx.font = '14px system-ui';
+      wrapText(octx, ta.value, x+10, y+22, w-20, 18);
+      // meta
+      octx.fillStyle = '#9aa0a6';
+      octx.font = '11px system-ui';
+      octx.fillText(el.dataset.ts || '', x+10, y+h-8);
+    });
+    const url = out.toDataURL('image/png');
+    const a = document.createElement('a');
+    a.href = url; a.download = 'whiteboard.png'; a.click();
+  }
+  function roundRect(ctx,x,y,w,h,r){
+    ctx.beginPath();
+    ctx.moveTo(x+r,y);
+    ctx.arcTo(x+w,y,x+w,y+h,r);
+    ctx.arcTo(x+w,y+h,x,y+h,r);
+    ctx.arcTo(x,y+h,x,y,r);
+    ctx.arcTo(x,y,x+w,y,r);
+    ctx.closePath();
+  }
+  function wrapText(ctx, text, x, y, maxWidth, lineHeight){
+    const words = text.split(/\s+/);
+    let line = '';
+    for (let n=0;n<words.length;n++){
+      const test = line + words[n] + ' ';
+      const m = ctx.measureText(test);
+      if (m.width > maxWidth && n>0){ ctx.fillText(line, x, y); line = words[n] + ' '; y += lineHeight; }
+      else line = test;
+    }
+    ctx.fillText(line, x, y);
+  }
+
+  function clearBoard(){
+    const r = canvas.getBoundingClientRect();
+    ctx.fillStyle = '#0d0f14';
+    ctx.fillRect(0,0,r.width,r.height);
+    pushHistory();
+    saveStateDebounced();
+  }
+
+  // Colors
+  function setActiveDot(c){
+    color = c; erasing = false; eraserBtn.classList.remove('on'); eraserBtn.textContent = '🩹 Eraser';
+    dots.querySelectorAll('.dot').forEach(d=>d.classList.toggle('active', d.dataset.color===c));
+  }
+  dots.addEventListener('click', (e)=>{
+    const d = e.target.closest('.dot'); if(!d) return;
+    setActiveDot(d.dataset.color);
+  });
+  setActiveDot('black');
+
+  // Double-click to add a text note at position
+  wrap.addEventListener('dblclick', (e)=>{
+    const isOnNote = e.target.closest('.note');
+    if(isOnNote) return;
+    const p = getRelPos(e);
+    createNote(p.x, p.y, '');
+  });
+
+  // ---------- Notes ----------
+  function createNote(x, y, text, ts){
+    const id = 'n' + Math.random().toString(36).slice(2,9);
+    const note = document.createElement('div');
+    note.className = 'note';
+    note.style.left = Math.max(8, x - 80) + 'px';
+    note.style.top = Math.max(8, y - 40) + 'px';
+    note.dataset.id = id;
+    const timestamp = ts || new Date().toLocaleString();
+    note.dataset.ts = timestamp;
+
+    const handle = document.createElement('div');
+    handle.className = 'handle'; handle.textContent = '⋮⋮';
+    note.appendChild(handle);
+
+    const ta = document.createElement('textarea');
+    ta.value = text || '';
+    ta.placeholder = 'Type note…';
+    note.appendChild(ta);
+
+    const meta = document.createElement('div');
+    meta.className = 'meta'; meta.textContent = timestamp;
+    note.appendChild(meta);
+
+    // drag
+    let drag = null;
+    note.addEventListener('pointerdown', (e)=>{
+      if(e.target===ta) return; // typing
+      note.setPointerCapture(e.pointerId);
+      note.classList.add('selected');
+      drag = {dx: e.clientX - note.offsetLeft, dy: e.clientY - note.offsetTop};
+    });
+    note.addEventListener('pointermove', (e)=>{
+      if(!drag) return;
+      note.style.left = (e.clientX - drag.dx) + 'px';
+      note.style.top = (e.clientY - drag.dy) + 'px';
+    });
+    note.addEventListener('pointerup', ()=>{
+      note.classList.remove('selected'); drag=null; saveStateDebounced();
+    });
+
+    // context menu (note-specific)
+    note.addEventListener('contextmenu', (e)=>{
+      e.preventDefault();
+      ctxMenu.innerHTML = `
+        <button data-act="edit">✏️ Edit</button>
+        <button data-act="dup">🧩 Duplicate</button>
+        <button data-act="delete" style="color:#ef4444">🗑 Delete</button>
+      `;
+      showCtx(e.clientX, e.clientY);
+      const once = (ev)=>{
+        const act = ev.target?.dataset?.act;
+        ctxMenu.style.display='none';
+        ctxMenu.removeEventListener('click', once);
+        if(act==='edit'){ ta.focus(); ta.select(); }
+        if(act==='dup'){ createNote(note.offsetLeft+20, note.offsetTop+20, ta.value); }
+        if(act==='delete'){ note.remove(); removeNote(id); saveStateDebounced(); }
+      };
+      ctxMenu.addEventListener('click', once, {once:true});
+    });
+
+    ta.addEventListener('input', ()=> { updateNote(id, {text: ta.value}); refreshDrawer(); saveStateDebounced(); });
+
+    notesLayer.appendChild(note);
+    notes.push({id, x:note.offsetLeft, y:note.offsetTop, text:ta.value, ts:timestamp});
+    refreshDrawer();
+    saveStateDebounced();
+    return note;
+  }
+  function createNoteAtCenter(){
+    const r = wrap.getBoundingClientRect();
+    createNote(r.width/2 - 60, r.height/2 - 40, '');
+  }
+  function removeNote(id){
+    const i = notes.findIndex(n=>n.id===id);
+    if(i>=0) notes.splice(i,1);
+    refreshDrawer();
+  }
+  function updateNote(id, patch){
+    const n = notes.find(n=>n.id===id);
+    if(!n) return;
+    Object.assign(n, patch, {x: document.querySelector(`.note[data-id="${id}"]`).offsetLeft,
+                             y: document.querySelector(`.note[data-id="${id}"]`).offsetTop});
+  }
+  function refreshDrawer(){
+    notesList.innerHTML = '';
+    notes.forEach(n=>{
+      const div = document.createElement('div');
+      div.className='item';
+      div.innerHTML = `
+        <div style="flex:1">
+          <div class="ts">${n.ts}</div>
+          <div class="txt">${n.text ? escapeHtml(n.text) : '<span style="color:#64748b">[empty]</span>'}</div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:.35rem">
+          <button data-id="${n.id}" data-op="focus">🔎</button>
+          <button data-id="${n.id}" data-op="del" title="Delete">🗑</button>
+        </div>
+      `;
+      notesList.appendChild(div);
+    });
+  }
+  notesList.addEventListener('click', (e)=>{
+    const id = e.target?.dataset?.id; const op = e.target?.dataset?.op;
+    if(!id) return;
+    const el = document.querySelector(`.note[data-id="${id}"]`);
+    if(!el) return;
+    if(op==='focus'){
+      drawer.classList.add('hidden');
+      el.scrollIntoView({behavior:'smooth', block:'center', inline:'center'});
+      el.classList.add('selected'); setTimeout(()=>el.classList.remove('selected'),700);
+    }
+    if(op==='del'){
+      removeNote(id); el.remove(); saveStateDebounced();
+    }
+  });
+  toggleDrawer.addEventListener('click', ()=> drawer.classList.toggle('hidden'));
+  closeDrawer?.addEventListener('click', ()=> drawer.classList.add('hidden'));
+
+  function escapeHtml(s){ return s.replace(/[&<>"']/g, m=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[m])); }
+
+  // ---------- Voice notes (Web Speech API) ----------
+  let recog = null, micOn = false, interim = '';
+  if('webkitSpeechRecognition' in window || 'SpeechRecognition' in window){
+    const R = window.SpeechRecognition || window.webkitSpeechRecognition;
+    recog = new R();
+    recog.lang = 'en-US';
+    recog.interimResults = true;
+    recog.continuous = true;
+    recog.onstart = ()=> { micOn = true; micBtn.classList.add('on'); micBtn.textContent='🎙 Stop'; micState.textContent='Mic: listening…'; };
+    recog.onend   = ()=> { micOn = false; micBtn.classList.remove('on'); micBtn.textContent='🎙 Start'; micState.textContent='Mic: idle'; };
+    recog.onerror = (e)=> { micState.textContent='Mic error: ' + (e.error||'unknown'); };
+    recog.onresult = (e)=>{
+      let finalText = '';
+      for(let i=e.resultIndex;i<e.results.length;i++){
+        const res = e.results[i];
+        if(res.isFinal) finalText += res[0].transcript;
+        else interim = res[0].transcript;
+      }
+      if(finalText.trim()){
+        // Create a note with transcript near top-right
+        const r = wrap.getBoundingClientRect();
+        createNote(r.width - 320, 24 + notes.length*12, finalText.trim());
+        micState.textContent = 'Captured note ✔';
+      }else{
+        micState.textContent = interim ? 'Listening… ' + interim : 'Mic: listening…';
+      }
+    };
+  }else{
+    micBtn.disabled = true;
+    micState.textContent = 'Mic unsupported in this browser.';
+  }
+  micBtn.addEventListener('click', ()=>{
+    if(!recog) return;
+    if(micOn) recog.stop(); else { try{ recog.start(); } catch{} }
+  });
+
+  // ---------- Persistence ----------
+  const SAVE_KEY = 'voice_whiteboard_v1';
+  const saveState = ()=>{
+    try{
+      const board = canvas.toDataURL();
+      const notesData = Array.from(document.querySelectorAll('.note')).map(el=>{
+        const ta = el.querySelector('textarea');
+        return {
+          id: el.dataset.id,
+          x: el.offsetLeft, y: el.offsetTop, text: ta.value, ts: el.dataset.ts
+        };
+      });
+      localStorage.setItem(SAVE_KEY, JSON.stringify({board, notes: notesData}));
+    }catch(e){}
+  };
+  const saveStateDebounced = debounce(saveState, 400);
+  function loadState(){
+    const raw = localStorage.getItem(SAVE_KEY);
+    if(!raw) return;
+    try{
+      const {board, notes: ns} = JSON.parse(raw);
+      if(board){ restoreFrom(board); /* also push to history to enable undo */ history.push(board); updateUndoRedo(); }
+      (ns||[]).forEach(n=>{
+        const el = createNote(n.x, n.y, n.text, n.ts);
+        el.dataset.id = n.id;
+      });
+    }catch(e){}
+  }
+  function debounce(fn, ms){ let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a), ms); }; }
+
+  // ---------- Init ----------
+  resizeCanvas();
+  // Fill background so first undo works
+  clearBoard();
+  // Load previous
+  loadState();
+
+  // Keyboard shortcuts
+  window.addEventListener('keydown', (e)=>{
+    if((e.ctrlKey || e.metaKey) && e.key.toLowerCase()==='z'){ e.preventDefault(); doUndo(); }
+    if((e.ctrlKey || e.metaKey) && e.key.toLowerCase()==='y'){ e.preventDefault(); doRedo(); }
+    if(e.key.toLowerCase()==='e'){ e.preventDefault(); toggleEraser(); }
+  });
+
+})();
+</script>
+</body>
+</html>
